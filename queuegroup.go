@@ -1,4 +1,4 @@
-package groupqueue
+package queuegroup
 
 import (
 	"sync"
