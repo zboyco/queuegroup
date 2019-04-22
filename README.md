@@ -1,4 +1,4 @@
-# groupQueue
+# queuegroup
 使用go实现一个分组排队取号叫号的逻辑
 
 # 业务场景（这个包产生的原因）
