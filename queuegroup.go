@@ -17,10 +17,10 @@ type Groups struct {
 type Ticket chan bool
 
 type queue struct {
-	groupID     int64       // 组ID(窗口ID)
-	reqChan     chan Ticket // 排号队列
-	currentChan Ticket      // 当前办理号
-	status      bool        // 队列状态(true:启用；false:关闭)
+	groupID       int64       // 组ID(窗口ID)
+	ticketChan    chan Ticket // 排号队列
+	currentTicket Ticket      // 当前办理号
+	status        bool        // 队列状态(true:启用；false:关闭)
 }
 
 // QueueGroup 数据请求队列
@@ -48,9 +48,9 @@ func (g *Groups) QueueUp(groupID int64) *Ticket {
 		oneQueue, exist = g.queues[groupID]
 		if !exist {
 			oneQueue = &queue{
-				groupID: groupID,
-				reqChan: make(chan Ticket, 10),
-				status:  true,
+				groupID:    groupID,
+				ticketChan: make(chan Ticket, 10),
+				status:     true,
 			}
 			go g.manager(oneQueue)
 			g.queues[groupID] = oneQueue
@@ -58,7 +58,7 @@ func (g *Groups) QueueUp(groupID int64) *Ticket {
 		g.Unlock()
 	}
 
-	oneQueue.reqChan <- queueChan
+	oneQueue.ticketChan <- queueChan
 	return &queueChan
 }
 
@@ -78,13 +78,13 @@ func (g *Groups) manager(q *queue) {
 	expireTimes := g.ExpireSecond * 100
 	timeoutDuration := time.Duration(g.Timeout) * time.Millisecond
 	for q.status {
-		if q.currentChan == nil {
+		if q.currentTicket == nil {
 			timeout := time.After(10 * time.Millisecond)
 			select {
-			case currentChan := <-q.reqChan:
+			case currentTicket := <-q.ticketChan:
 				count = 0
-				q.currentChan = currentChan
-				q.currentChan <- true
+				q.currentTicket = currentTicket
+				q.currentTicket <- true
 			case <-timeout:
 				if expireTimes > 0 {
 					count++
@@ -95,18 +95,18 @@ func (g *Groups) manager(q *queue) {
 				break
 			}
 		}
-		if q.currentChan != nil {
+		if q.currentTicket != nil {
 			if timeoutDuration > 0 {
 				timeout := time.After(timeoutDuration)
 				select {
 				case <-timeout:
-					q.currentChan = nil
-				case <-q.currentChan:
-					q.currentChan = nil
+					q.currentTicket = nil
+				case <-q.currentTicket:
+					q.currentTicket = nil
 				}
 			} else {
-				<-q.currentChan
-				q.currentChan = nil
+				<-q.currentTicket
+				q.currentTicket = nil
 			}
 
 		}
