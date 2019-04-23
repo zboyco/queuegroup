@@ -25,6 +25,7 @@
 6. 若该窗口一段时间（闲置时间）没有人取号办理业务，关闭该窗口以节约资源（也可以不关闭）
 
 # 使用方法
+基本使用方法：
 ```go
 package main
 
@@ -54,22 +55,28 @@ func main() {
 
 		go func(mt *queuegroup.Ticket, id int) {
 			// 等待叫号
-            mt.Wait()
-            
-            // 办理业务
-            fmt.Printf("办理成功: %v\n", id)
-            
-			// 离开队伍
-            err := mt.Leave()
-            
+			mt.Wait()
+
+			// 办理业务
+			fmt.Printf("办理成功: %v \n", id)
+
+			// 离开队伍，下一个才能被叫号（或者超时）
+			err := mt.Leave()
 			if err != nil {
 				fmt.Println(err)
-            }
-            
+			}
+
 			wg.Done()
 		}(ticket, i)
 	}
 	wg.Wait()
 }
 
+```
+* 上面的例子直接使用包级函数，当然也可以初始化一个单独的队列组实例，使用方法和包级函数相同：
+```go
+// 新建队列组
+dataQueue := queuegroup.NewQueueGroup()
+// 配置超时和过期时间
+dataQueue.Config(10, 500, 30)
 ```
