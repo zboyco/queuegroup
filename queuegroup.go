@@ -8,58 +8,95 @@ import (
 
 // Groups 队列组
 type Groups struct {
-	Timeout      int64 // 单个号业务办理超时时间（毫秒）
-	ExpireSecond int64 // 组队列没有排号后多长时间关闭队列（秒）
-	queues       map[int64]*queue
+	timeout      int64 // 单个号业务办理超时时间（毫秒，默认不超时）
+	expireSecond int64 // 组队列没有排号后多长时间关闭队列（秒，默认不关闭）
+	queueMax     int64 // 单个队列最大长度（默认10）
+	queues       map[int64]*Queue
 	sync.Mutex
 }
 
 // Ticket 排队票据
 type Ticket chan bool
 
-type queue struct {
+// Queue 队列
+type Queue struct {
 	groupID       int64       // 组ID(窗口ID)
 	ticketChan    chan Ticket // 排号队列
 	currentTicket Ticket      // 当前办理号
 	status        bool        // 队列状态(true:启用；false:关闭)
 }
 
-// QueueGroup 数据请求队列
-var QueueGroup *Groups
+// 包级数据请求队列
+var queueGroup *Groups
 
 func init() {
-	QueueGroup = &Groups{
-		queues: make(map[int64]*queue),
-	}
+	queueGroup = NewQueueGroup()
 }
 
 // NewQueueGroup 新建一个队列组
 func NewQueueGroup() *Groups {
 	return &Groups{
-		queues: make(map[int64]*queue),
+		queueMax: 10,
+		queues:   make(map[int64]*Queue),
 	}
 }
 
-// QueueUp 排队取号
-func (g *Groups) QueueUp(groupID int64) *Ticket {
-	queueChan := make(Ticket, 1)
+// Config 设置参数
+//
+// queueMax 单个队列最大长度（默认10）
+// timeout 单个号业务办理超时时间（毫秒，默认不超时）
+// expireSecond 组队列没有排号后多长时间关闭队列（秒，默认不关闭）
+func Config(queueMax, timeout, expireSecond int64) {
+	queueGroup.Config(queueMax, timeout, expireSecond)
+}
+
+// GetQueue 获取组
+//
+// groupID 组号
+func GetQueue(groupID int64) *Queue {
+	return queueGroup.GetQueue(groupID)
+}
+
+// Config 设置参数
+//
+// queueMax 单个队列最大长度（默认10）
+// timeout 单个号业务办理超时时间（毫秒，默认不超时）
+// expireSecond 组队列没有排号后多长时间关闭队列（秒，默认不关闭）
+func (g *Groups) Config(queueMax, timeout, expireSecond int64) {
+	if queueMax > 0 {
+		g.queueMax = queueMax
+	}
+	if timeout > 0 {
+		g.timeout = timeout
+	}
+	if expireSecond > 0 {
+		g.expireSecond = expireSecond
+	}
+}
+
+// GetQueue 获取组
+//
+// groupID 组号
+func (g *Groups) GetQueue(groupID int64) *Queue {
+	g.Lock()
+	defer g.Unlock()
 	oneQueue, exist := g.queues[groupID]
 	if !exist {
-		g.Lock()
-		oneQueue, exist = g.queues[groupID]
-		if !exist {
-			oneQueue = &queue{
-				groupID:    groupID,
-				ticketChan: make(chan Ticket, 10),
-				status:     true,
-			}
-			go g.manager(oneQueue)
-			g.queues[groupID] = oneQueue
+		oneQueue = &Queue{
+			groupID:    groupID,
+			ticketChan: make(chan Ticket, g.queueMax),
+			status:     true,
 		}
-		g.Unlock()
+		go g.manager(oneQueue)
+		g.queues[groupID] = oneQueue
 	}
+	return oneQueue
+}
 
-	oneQueue.ticketChan <- queueChan
+// QueueUp 排队取号
+func (q *Queue) QueueUp() *Ticket {
+	queueChan := make(Ticket)
+	q.ticketChan <- queueChan
 	return &queueChan
 }
 
@@ -74,10 +111,10 @@ func (g *Groups) remove(groupID int64) {
 }
 
 // 队列管理
-func (g *Groups) manager(q *queue) {
+func (g *Groups) manager(q *Queue) {
 	count := int64(0)
-	expireTimes := g.ExpireSecond * 100
-	timeoutDuration := time.Duration(g.Timeout) * time.Millisecond
+	expireTimes := g.expireSecond * 100
+	timeoutDuration := time.Duration(g.timeout) * time.Millisecond
 	for q.status {
 		if q.currentTicket == nil {
 			timeout := time.After(10 * time.Millisecond)
@@ -85,7 +122,6 @@ func (g *Groups) manager(q *queue) {
 			case currentTicket := <-q.ticketChan:
 				count = 0
 				q.currentTicket = currentTicket
-				q.currentTicket <- true
 			case <-timeout:
 				if expireTimes > 0 {
 					count++
@@ -97,23 +133,28 @@ func (g *Groups) manager(q *queue) {
 			}
 		}
 		if q.currentTicket != nil {
+			q.callTicket()
 			if timeoutDuration > 0 {
 				timeout := time.After(timeoutDuration)
 				select {
 				case <-timeout:
-					close(q.currentTicket)
-					q.currentTicket = nil
 				case <-q.currentTicket:
-					close(q.currentTicket)
-					q.currentTicket = nil
 				}
 			} else {
 				<-q.currentTicket
-				q.currentTicket = nil
 			}
-
+			q.closeTicket()
 		}
 	}
+}
+
+func (q *Queue) callTicket() {
+	q.currentTicket <- true
+}
+
+func (q *Queue) closeTicket() {
+	close(q.currentTicket)
+	q.currentTicket = nil
 }
 
 // Wait 等待叫号

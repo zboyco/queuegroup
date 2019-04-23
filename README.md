@@ -23,3 +23,53 @@
 4. 办理完成后（或超时）离开该窗口（组）
 5. 继续叫号
 6. 若该窗口一段时间（闲置时间）没有人取号办理业务，关闭该窗口以节约资源（也可以不关闭）
+
+# 使用方法
+```go
+package main
+
+import (
+	"fmt"
+	"sync"
+
+	"github.com/zboyco/queuegroup"
+)
+
+func main() {
+	wg := sync.WaitGroup{}
+	// 配置超时和过期时间
+	queuegroup.Config(
+		100, // 单个队列最大长度（默认10）
+		500, // 单个号业务办理超时时间（毫秒，默认不超时）
+		30,  // 组队列没有排号后多长时间关闭队列（秒，默认不关闭）
+	)
+	// 获取队列
+	queue := queuegroup.GetQueue(0) // 传入队列组ID
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+
+		// 取号
+		ticket := queue.QueueUp()
+
+		go func(mt *queuegroup.Ticket, id int) {
+			// 等待叫号
+            mt.Wait()
+            
+            // 办理业务
+            fmt.Printf("办理成功: %v\n", id)
+            
+			// 离开队伍
+            err := mt.Leave()
+            
+			if err != nil {
+				fmt.Println(err)
+            }
+            
+			wg.Done()
+		}(ticket, i)
+	}
+	wg.Wait()
+}
+
+```
