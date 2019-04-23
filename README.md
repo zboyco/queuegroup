@@ -59,7 +59,7 @@ func main() {
 			// 等待叫号
 			mt.Wait()
 
-            // 办理业务
+			// 办理业务
 			data++
 			fmt.Printf("[%v号]办理成功: %v \n", id, data)
 
