@@ -1,6 +1,7 @@
 package queuegroup
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
@@ -41,7 +42,7 @@ func NewQueueGroup() *Groups {
 
 // QueueUp 排队取号
 func (g *Groups) QueueUp(groupID int64) *Ticket {
-	queueChan := make(Ticket)
+	queueChan := make(Ticket, 1)
 	oneQueue, exist := g.queues[groupID]
 	if !exist {
 		g.Lock()
@@ -100,8 +101,10 @@ func (g *Groups) manager(q *queue) {
 				timeout := time.After(timeoutDuration)
 				select {
 				case <-timeout:
+					close(q.currentTicket)
 					q.currentTicket = nil
 				case <-q.currentTicket:
+					close(q.currentTicket)
 					q.currentTicket = nil
 				}
 			} else {
@@ -119,6 +122,12 @@ func (t *Ticket) Wait() {
 }
 
 // Leave 离开队伍
-func (t *Ticket) Leave() {
+func (t *Ticket) Leave() (err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			err = errors.New("ticket timeout")
+		}
+	}()
 	(*t) <- true
+	return
 }
