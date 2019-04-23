@@ -16,25 +16,30 @@ func main() {
 		30,  // 组队列没有排号后多长时间关闭队列（秒，默认不关闭）
 	)
 	// 获取队列
-	queue := []*queuegroup.Queue{
+	queue := [2]*queuegroup.Queue{
 		queuegroup.GetQueue(0),
 		queuegroup.GetQueue(1),
 	}
 
+	data := [2]int{
+		0,
+		0,
+	}
+
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
-		// 模拟请求间隔
-		// time.Sleep(2 * time.Millisecond)
+
 		groupID := i % 2
 		// 取号
 		ticket := queue[groupID].QueueUp()
-		x := i
+
 		go func(mt *queuegroup.Ticket, id int, g int) {
 			// 等待叫号
 			mt.Wait()
 
 			// 办理业务
-			fmt.Printf("办理成功: %v (%v)\n", id, g)
+			data[g]++
+			fmt.Printf("[%v组%v号]办理成功: %v \n", g, id, data[g])
 
 			// 离开队伍
 			err := mt.Leave()
@@ -43,7 +48,7 @@ func main() {
 			}
 
 			wg.Done()
-		}(ticket, x, groupID)
+		}(ticket, i, groupID)
 	}
 	wg.Wait()
 }

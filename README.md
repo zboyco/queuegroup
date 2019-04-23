@@ -45,8 +45,10 @@ func main() {
 		30,  // 组队列没有排号后多长时间关闭队列（秒，默认不关闭）
 	)
 	// 获取队列
-	queue := queuegroup.GetQueue(0) // 传入队列组ID
-
+    queue := queuegroup.GetQueue(0) // 传入队列组ID
+    
+    // 基础数据
+    data := 0
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 
@@ -57,8 +59,9 @@ func main() {
 			// 等待叫号
 			mt.Wait()
 
-			// 办理业务
-			fmt.Printf("办理成功: %v \n", id)
+            // 办理业务
+			data++
+			fmt.Printf("[%v号]办理成功: %v \n", id, data)
 
 			// 离开队伍，下一个才能被叫号（或者超时）
 			err := mt.Leave()
