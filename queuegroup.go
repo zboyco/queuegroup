@@ -5,32 +5,43 @@ import (
 	"time"
 )
 
-type queueGroup struct {
+// Groups 队列组
+type Groups struct {
 	Timeout      int64 // 单个号业务办理超时时间（毫秒）
 	ExpireSecond int64 // 组队列没有排号后多长时间关闭队列（秒）
 	queues       map[int64]*queue
 	sync.Mutex
 }
 
+// Ticket 排队票据
+type Ticket chan bool
+
 type queue struct {
-	groupID     int64          // 组ID(窗口ID)
-	reqChan     chan chan bool // 排号队列
-	currentChan chan bool      // 当前办理号
-	status      bool           // 队列状态(true:启用；false:关闭)
+	groupID     int64       // 组ID(窗口ID)
+	reqChan     chan Ticket // 排号队列
+	currentChan Ticket      // 当前办理号
+	status      bool        // 队列状态(true:启用；false:关闭)
 }
 
 // QueueGroup 数据请求队列
-var QueueGroup *queueGroup
+var QueueGroup *Groups
 
 func init() {
-	QueueGroup = &queueGroup{
+	QueueGroup = &Groups{
+		queues: make(map[int64]*queue),
+	}
+}
+
+// NewQueueGroup 新建一个队列组
+func NewQueueGroup() *Groups {
+	return &Groups{
 		queues: make(map[int64]*queue),
 	}
 }
 
 // QueueUp 排队取号
-func (g *queueGroup) QueueUp(groupID int64) chan bool {
-	queueChan := make(chan bool)
+func (g *Groups) QueueUp(groupID int64) *Ticket {
+	queueChan := make(Ticket)
 	oneQueue, exist := g.queues[groupID]
 	if !exist {
 		g.Lock()
@@ -38,20 +49,20 @@ func (g *queueGroup) QueueUp(groupID int64) chan bool {
 		if !exist {
 			oneQueue = &queue{
 				groupID: groupID,
-				reqChan: make(chan chan bool, 10),
+				reqChan: make(chan Ticket, 10),
 				status:  true,
 			}
-			go oneQueue.manager()
+			go g.manager(oneQueue)
 			g.queues[groupID] = oneQueue
 		}
 		g.Unlock()
 	}
 
 	oneQueue.reqChan <- queueChan
-	return queueChan
+	return &queueChan
 }
 
-func (g *queueGroup) remove(groupID int64) {
+func (g *Groups) remove(groupID int64) {
 	g.Lock()
 	defer g.Unlock()
 	oneQueue, exist := g.queues[groupID]
@@ -62,10 +73,10 @@ func (g *queueGroup) remove(groupID int64) {
 }
 
 // 队列管理
-func (q *queue) manager() {
+func (g *Groups) manager(q *queue) {
 	count := int64(0)
-	expireTimes := QueueGroup.ExpireSecond * 100
-	timeoutDuration := time.Duration(QueueGroup.Timeout) * time.Millisecond
+	expireTimes := g.ExpireSecond * 100
+	timeoutDuration := time.Duration(g.Timeout) * time.Millisecond
 	for q.status {
 		if q.currentChan == nil {
 			timeout := time.After(10 * time.Millisecond)
@@ -78,7 +89,7 @@ func (q *queue) manager() {
 				if expireTimes > 0 {
 					count++
 					if count >= expireTimes {
-						QueueGroup.remove(q.groupID)
+						g.remove(q.groupID)
 					}
 				}
 				break
@@ -100,4 +111,14 @@ func (q *queue) manager() {
 
 		}
 	}
+}
+
+// Wait 等待叫号
+func (t *Ticket) Wait() {
+	<-(*t)
+}
+
+// Leave 离开队伍
+func (t *Ticket) Leave() {
+	(*t) <- true
 }
